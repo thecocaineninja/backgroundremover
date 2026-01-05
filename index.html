@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+<title>Magic Background Remover</title>
+
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-KXQLD7ZK7H"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-KXQLD7ZK7H');
+</script>
+
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #f5f5f7;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+button { border: none; background: none; padding: 0; }
+a { color: inherit; text-decoration: none; }
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .5rem 1rem;
+  background: #ffffffee;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #ddd;
+  gap: .75rem;
+}
+
+#toolbar-left, #toolbar-right {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+}
+
+.tool-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #eee;
+  font-size: 16px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tool-btn:active { transform: translateY(1px); }
+.tool-btn.active {
+  background: #2f80ed;
+  color: #fff;
+}
+.tool-btn[aria-pressed="true"] {
+  outline: 2px solid rgba(47,128,237,.35);
+  outline-offset: 2px;
+}
+
+/* CANVAS AREA */
+#canvas-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  background: #e0e0e0;
+}
+
+#main-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  background: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 16px 16px;
+  border-radius: 12px;
+  touch-action: none;
+}
+
+/* Drag overlay */
+#drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.35);
+  backdrop-filter: blur(6px);
+}
+#drop-overlay .box {
+  background: rgba(255,255,255,.95);
+  border: 2px dashed #2f80ed;
+  border-radius: 16px;
+  padding: 18px 20px;
+  font-weight: 700;
+}
+
+/* BOTTOM PANEL */
+#bottom-panel {
+  width: 100%;
+  background: #ffffffdd;
+  backdrop-filter: blur(12px);
+  border-top: 1px solid #ccc;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.panel-section { margin-bottom: 1.25rem; }
+.panel-section h3 {
+  margin: 0 0 .5rem 0;
+  font-size: 1rem;
+}
+
+input[type=range] { width: 100%; }
+
+select, .btn, .btn-link {
+  padding: .65rem 1rem;
+  border-radius: 10px;
+  background: #f0f0f3;
+  border: 1px solid #ccc;
+  width: 100%;
+  font-size: 1rem;
+  margin-top: .25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+}
+
+.btn.primary {
+  background: #2f80ed;
+  color: #fff;
+  border-color: #2f80ed;
+}
+
+.small-note {
+  font-size: .9rem;
+  opacity: .7;
+  line-height: 1.35;
+}
+
+/* Side-by-side preview */
+#preview-container {
+  display: none;
+  width: 100%;
+  padding: 1rem;
+  background: #fff;
+  border-top: 1px solid #ddd;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .75rem;
+}
+@media (max-width: 720px) {
+  .preview-grid { grid-template-columns: 1fr; }
+}
+
+.preview-card {
+  border: 1px solid #e6e6ea;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fafafa;
+}
+.preview-card .label {
+  padding: .5rem .75rem;
+  font-weight: 700;
+  border-bottom: 1px solid #e6e6ea;
+  background: #fff;
+}
+.preview-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 16px 16px;
+}
+
+/* utils */
+.hidden { display: none !important; }
+</style>
+</head>
+
+<body>
+<div id="toolbar">
+  <div id="toolbar-left">
+    <!-- Upload -->
+    <label class="tool-btn" title="Upload image">
+      <input type="file" id="file-input" accept="image/*" hidden />
+      📤
+    </label>
+
+    <button id="tool-brush" class="tool-btn" title="Erase brush" aria-pressed="false">🖌️</button>
+    <button id="tool-restore" class="tool-btn" title="Restore brush" aria-pressed="false">🩹</button>
+    <button id="tool-wand" class="tool-btn" title="Magic wand" aria-pressed="false">✨</button>
+    <button id="tool-key" class="tool-btn" title="Chroma key" aria-pressed="false">🎯</button>
+  </div>
+
+  <div id="toolbar-right">
+    <!-- Before/After toggle -->
+    <button id="compare-btn" class="tool-btn" title="Before/After (hold or click)" aria-pressed="false">↔️</button>
+
+    <button id="undo-btn" class="tool-btn" title="Undo">↩️</button>
+    <button id="redo-btn" class="tool-btn" title="Redo">↪️</button>
+    <button id="reset-btn" class="tool-btn" title="Reset">♻️</button>
+  </div>
+</div>
+
+<div id="canvas-wrapper">
+  <canvas id="main-canvas"></canvas>
+
+  <div id="drop-overlay">
+    <div class="box">Drop an image to start</div>
+  </div>
+</div>
+
+<div id="bottom-panel">
+
+  <div class="panel-section" id="brush-settings">
+    <h3>Brush Size</h3>
+    <input type="range" id="brush-size" min="5" max="120" value="35" />
+  </div>
+
+  <div class="panel-section" id="wand-settings">
+    <h3>Magic Wand Tolerance</h3>
+    <input type="range" id="wand-tolerance" min="0" max="255" value="50" />
+  </div>
+
+  <div class="panel-section" id="key-settings">
+    <h3>Chroma Key Tolerance</h3>
+    <input type="range" id="key-tolerance" min="0" max="255" value="50" />
+  </div>
+
+  <div class="panel-section">
+    <h3>Preview Background</h3>
+    <select id="bg-fill">
+      <option value="transparent">Checkerboard</option>
+      <option value="#ffffff">White</option>
+      <option value="#000000">Black</option>
+      <option value="#f0ea00">Yellow</option>
+      <option value="#00ffff">Cyan</option>
+      <option value="#ff00ff">Magenta</option>
+      <option value="gradient:sky">Sky Gradient</option>
+      <option value="gradient:studio">Studio Gray</option>
+    </select>
+    <div class="small-note">This is preview-only. PNG/WebP exports stay transparent unless you choose JPEG.</div>
+  </div>
+
+  <div class="panel-section">
+    <h3>Downloads</h3>
+    <button class="btn primary" id="download-png">Download PNG (Transparent)</button>
+    <button class="btn" id="download-webp">Download WebP (Transparent)</button>
+    <button class="btn" id="download-jpeg">Download JPEG (White BG)</button>
+    <button class="btn" id="download-mask">Download Mask Only</button>
+  </div>
+
+  <div class="panel-section">
+    <h3>Support</h3>
+    <a class="btn-link" id="bmc-link" href="https://www.buymeacoffee.com/thecocaineninja" target="_blank" rel="noopener">
+      ☕ Buy me a coffee
+    </a>
+
+</div>
+
+<div id="preview-container">
+  <div class="preview-grid">
+    <div class="preview-card">
+      <div class="label">Original</div>
+      <canvas id="preview-original" class="preview-canvas"></canvas>
+    </div>
+    <div class="preview-card">
+      <div class="label">Processed</div>
+      <canvas id="preview-processed" class="preview-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const canvas = $("main-canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+const workCanvas = document.createElement("canvas");
+const wctx = workCanvas.getContext("2d", { willReadFrequently: true });
+
+let imgWidth = 0, imgHeight = 0;
+let originalImage = null;  // ImageData
+let currentImage = null;   // ImageData
+
+let historyStack = [];
+let redoStack = [];
+const HISTORY_LIMIT = 50;
+
+let activeTool = "none";   // brush | restore | wand | key | none
+let brushSize = 35;
+let keyColor = null;
+
+// compare
+let compareLatched = false;
+let compareHolding = false;
+
+// preview UI
+const previewContainer = $("preview-container");
+const previewOriginal = $("preview-original");
+const previewProcessed = $("preview-processed");
+const octx = previewOriginal.getContext("2d", { willReadFrequently: true });
+const pctx = previewProcessed.getContext("2d", { willReadFrequently: true });
+let showPreviews = false;
+
+// UI elements
+const fileInput = $("file-input");
+const brushSizeInput = $("brush-size");
+const wandTolerance = $("wand-tolerance");
+const keyTolerance = $("key-tolerance");
+const bgFill = $("bg-fill");
+const dropOverlay = $("drop-overlay");
+
+const btnBrush = $("tool-brush");
+const btnRestore = $("tool-restore");
+const btnWand = $("tool-wand");
+const btnKey = $("tool-key");
+
+const btnUndo = $("undo-btn");
+const btnRedo = $("redo-btn");
+const btnReset = $("reset-btn");
+const btnCompare = $("compare-btn");
+
+const btnPng = $("download-png");
+const btnWebp = $("download-webp");
+const btnJpeg = $("download-jpeg");
+const btnMask = $("download-mask");
+
+/* ============================================================================
+   Helpers
+============================================================================ */
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function idxOf(x, y) { return (y * imgWidth + x) * 4; }
+
+function getPixel(imgData, x, y) {
+  const i = idxOf(x, y);
+  const d = imgData.data;
+  return [d[i], d[i+1], d[i+2], d[i+3]];
+}
+
+function setPixel(imgData, x, y, rgba) {
+  const i = idxOf(x, y);
+  const d = imgData.data;
+  d[i]   = rgba[0];
+  d[i+1] = rgba[1];
+  d[i+2] = rgba[2];
+  d[i+3] = rgba[3];
+}
+
+function colorDistance(a, b) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return Math.sqrt(dr*dr + dg*dg + db*db);
+}
+
+function canvasCoords(evt) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((evt.clientX - rect.left) * (imgWidth / rect.width));
+  const y = Math.floor((evt.clientY - rect.top) * (imgHeight / rect.height));
+  return {
+    x: clamp(x, 0, imgWidth - 1),
+    y: clamp(y, 0, imgHeight - 1)
+  };
+}
+
+/* ============================================================================
+   Render Pipeline (preview-only background)
+============================================================================ */
+function getBgPaint(ctx2d) {
+  const v = bgFill.value;
+  if (v === "transparent") return null;
+
+  if (v.startsWith("gradient:")) {
+    const name = v.split(":")[1];
+    if (name === "sky") {
+      const g = ctx2d.createLinearGradient(0, 0, 0, imgHeight);
+      g.addColorStop(0, "#c7e7ff");
+      g.addColorStop(1, "#ffffff");
+      return g;
+    }
+    if (name === "studio") {
+      const g = ctx2d.createLinearGradient(0, 0, imgWidth, imgHeight);
+      g.addColorStop(0, "#f4f4f7");
+      g.addColorStop(1, "#d9d9e2");
+      return g;
+    }
+  }
+
+  return v;
+}
+
+function setWorkFromImageData(imgData) {
+  currentImage = new ImageData(new Uint8ClampedArray(imgData.data), imgWidth, imgHeight);
+  workCanvas.width = imgWidth;
+  workCanvas.height = imgHeight;
+  wctx.putImageData(currentImage, 0, 0);
+}
+
+function renderMain(showOriginal = false) {
+  if (!currentImage) {
+    canvas.width = Math.max(640, canvas.clientWidth || 640);
+    canvas.height = Math.max(420, canvas.clientHeight || 420);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+
+  canvas.width = imgWidth;
+  canvas.height = imgHeight;
+
+  ctx.clearRect(0, 0, imgWidth, imgHeight);
+
+  const paint = getBgPaint(ctx);
+  if (paint) {
+    ctx.fillStyle = paint;
+    ctx.fillRect(0, 0, imgWidth, imgHeight);
+  }
+
+  if (showOriginal) ctx.putImageData(originalImage, 0, 0);
+  else ctx.drawImage(workCanvas, 0, 0);
+}
+
+function syncPreviews() {
+  if (!currentImage) return;
+
+  previewOriginal.width = imgWidth;
+  previewOriginal.height = imgHeight;
+  previewProcessed.width = imgWidth;
+  previewProcessed.height = imgHeight;
+
+  octx.clearRect(0,0,imgWidth,imgHeight);
+  octx.putImageData(originalImage, 0, 0);
+
+  pctx.clearRect(0,0,imgWidth,imgHeight);
+  const paint = getBgPaint(pctx);
+  if (paint) {
+    pctx.fillStyle = paint;
+    pctx.fillRect(0, 0, imgWidth, imgHeight);
+  }
+  pctx.drawImage(workCanvas, 0, 0);
+}
+
+function refreshAll() {
+  const showOriginal = compareHolding || compareLatched;
+  renderMain(showOriginal);
+  if (showPreviews) syncPreviews();
+}
+
+/* ============================================================================
+   History
+============================================================================ */
+function pushHistory() {
+  if (!currentImage) return;
+  historyStack.push(new ImageData(new Uint8ClampedArray(currentImage.data), imgWidth, imgHeight));
+  if (historyStack.length > HISTORY_LIMIT) historyStack.shift();
+  redoStack = [];
+}
+
+function restoreFromHistory(imgData) {
+  setWorkFromImageData(imgData);
+  refreshAll();
+}
+
+/* ============================================================================
+   Load Image
+============================================================================ */
+function loadImage(file) {
+  const img = new Image();
+  img.onload = () => {
+    imgWidth = img.width;
+    imgHeight = img.height;
+
+    workCanvas.width = imgWidth;
+    workCanvas.height = imgHeight;
+
+    // draw to work canvas, capture original
+    wctx.clearRect(0, 0, imgWidth, imgHeight);
+    wctx.drawImage(img, 0, 0);
+
+    originalImage = wctx.getImageData(0, 0, imgWidth, imgHeight);
+    setWorkFromImageData(originalImage);
+
+    historyStack = [];
+    redoStack = [];
+    pushHistory();
+
+    showPreviews = true;
+    previewContainer.style.display = "block";
+
+    refreshAll();
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+fileInput.addEventListener("change", (e) => {
+  if (e.target.files && e.target.files[0]) loadImage(e.target.files[0]);
+});
+
+/* ============================================================================
+   Drag & Drop Overlay
+============================================================================ */
+let dragDepth = 0;
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("dragenter", (e) => {
+  e.preventDefault();
+  dragDepth++;
+  dropOverlay.style.display = "flex";
+});
+document.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dropOverlay.style.display = "none";
+});
+document.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.style.display = "none";
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+    loadImage(e.dataTransfer.files[0]);
+  }
+});
+
+/* ============================================================================
+   Tools
+============================================================================ */
+function setTool(t) {
+  activeTool = t;
+
+  // only clear left toolbar buttons (not upload label)
+  [btnBrush, btnRestore, btnWand, btnKey].forEach(b => {
+    b.classList.remove("active");
+    b.setAttribute("aria-pressed", "false");
+  });
+
+  const map = { brush: btnBrush, restore: btnRestore, wand: btnWand, key: btnKey };
+  if (map[t]) {
+    map[t].classList.add("active");
+    map[t].setAttribute("aria-pressed", "true");
+  }
+}
+
+btnBrush.addEventListener("click", () => setTool("brush"));
+btnRestore.addEventListener("click", () => setTool("restore"));
+btnWand.addEventListener("click", () => setTool("wand"));
+btnKey.addEventListener("click", () => setTool("key"));
+
+brushSizeInput.addEventListener("input", () => {
+  brushSize = parseInt(brushSizeInput.value, 10);
+});
+
+bgFill.addEventListener("change", () => {
+  if (!currentImage) return;
+  refreshAll();
+});
+
+/* ============================================================================
+   Magic Wand (Flood fill)
+============================================================================ */
+function magicWandFill(x, y, tolerance) {
+  const img = currentImage;
+  const base = getPixel(img, x, y);
+
+  // stack-based DFS with visited bitmap
+  const stack = [[x, y]];
+  const visited = new Uint8Array(imgWidth * imgHeight);
+
+  while (stack.length) {
+    const [cx, cy] = stack.pop();
+    const vi = cy * imgWidth + cx;
+    if (visited[vi]) continue;
+    visited[vi] = 1;
+
+    const c = getPixel(img, cx, cy);
+    if (colorDistance(c, base) <= tolerance) {
+      setPixel(img, cx, cy, [0,0,0,0]);
+
+      if (cx > 0) stack.push([cx - 1, cy]);
+      if (cx < imgWidth - 1) stack.push([cx + 1, cy]);
+      if (cy > 0) stack.push([cx, cy - 1]);
+      if (cy < imgHeight - 1) stack.push([cx, cy + 1]);
+    }
+  }
+
+  setWorkFromImageData(img);
+}
+
+/* ============================================================================
+   Brush (erase/restore)
+============================================================================ */
+function drawBrush(x, y, restore = false) {
+  const radius = brushSize / 2;
+  const rCeil = Math.ceil(radius);
+
+  for (let py = -rCeil; py <= rCeil; py++) {
+    for (let px = -rCeil; px <= rCeil; px++) {
+      if (px*px + py*py > radius*radius) continue;
+      const tx = x + px;
+      const ty = y + py;
+      if (tx < 0 || ty < 0 || tx >= imgWidth || ty >= imgHeight) continue;
+
+      if (restore) setPixel(currentImage, tx, ty, getPixel(originalImage, tx, ty));
+      else setPixel(currentImage, tx, ty, [0,0,0,0]);
+    }
+  }
+
+  setWorkFromImageData(currentImage);
+}
+
+/* ============================================================================
+   Chroma Key
+============================================================================ */
+function applyChromaKey() {
+  if (!keyColor || !currentImage) return;
+
+  const tol = parseInt(keyTolerance.value, 10);
+  const img = currentImage;
+  const d = img.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i+1], b = d[i+2];
+    if (colorDistance([r,g,b], keyColor) <= tol) d[i+3] = 0;
+  }
+
+  setWorkFromImageData(img);
+}
+
+/* ============================================================================
+   Pointer Events (one input system that never breaks)
+============================================================================ */
+let pointerDown = false;
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (!currentImage) return;
+  e.preventDefault();
+
+  const { x, y } = canvasCoords(e);
+
+  if (activeTool === "wand") {
+    pushHistory();
+    magicWandFill(x, y, parseInt(wandTolerance.value, 10));
+    refreshAll();
+    return;
+  }
+
+  if (activeTool === "key") {
+    pushHistory();
+    keyColor = getPixel(currentImage, x, y);
+    applyChromaKey();
+    refreshAll();
+    return;
+  }
+
+  if (activeTool === "brush" || activeTool === "restore") {
+    pointerDown = true;
+    canvas.setPointerCapture?.(e.pointerId);
+    pushHistory();
+    drawBrush(x, y, activeTool === "restore");
+    refreshAll();
+  }
+}, { passive: false });
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!pointerDown) return;
+  if (!currentImage) return;
+  e.preventDefault();
+
+  const { x, y } = canvasCoords(e);
+  drawBrush(x, y, activeTool === "restore");
+  refreshAll();
+}, { passive: false });
+
+window.addEventListener("pointerup", (e) => {
+  pointerDown = false;
+  try { canvas.releasePointerCapture?.(e.pointerId); } catch {}
+});
+window.addEventListener("pointercancel", (e) => {
+  pointerDown = false;
+  try { canvas.releasePointerCapture?.(e.pointerId); } catch {}
+});
+
+/* ============================================================================
+   Compare (Before/After)
+============================================================================ */
+function setComparePressed(v) {
+  btnCompare.setAttribute("aria-pressed", v ? "true" : "false");
+  btnCompare.classList.toggle("active", v);
+}
+
+btnCompare.addEventListener("click", () => {
+  compareLatched = !compareLatched;
+  setComparePressed(compareLatched || compareHolding);
+  refreshAll();
+});
+
+btnCompare.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  compareHolding = true;
+  setComparePressed(compareLatched || compareHolding);
+  refreshAll();
+}, { passive: false });
+
+window.addEventListener("pointerup", () => {
+  if (!compareHolding) return;
+  compareHolding = false;
+  setComparePressed(compareLatched || compareHolding);
+  refreshAll();
+});
+
+/* ============================================================================
+   Undo / Redo / Reset
+============================================================================ */
+btnUndo.addEventListener("click", () => {
+  if (historyStack.length > 1) {
+    redoStack.push(historyStack.pop());
+    restoreFromHistory(historyStack[historyStack.length - 1]);
+  }
+});
+
+btnRedo.addEventListener("click", () => {
+  if (redoStack.length > 0) {
+    const restored = redoStack.pop();
+    historyStack.push(restored);
+    restoreFromHistory(restored);
+  }
+});
+
+btnReset.addEventListener("click", () => {
+  if (!originalImage) return;
+  setWorkFromImageData(originalImage);
+  historyStack = [];
+  redoStack = [];
+  pushHistory();
+  refreshAll();
+});
+
+/* ============================================================================
+   Downloads (transparency-correct)
+============================================================================ */
+function downloadFromCanvas(srcCanvas, filename, mime) {
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = srcCanvas.toDataURL(mime);
+  link.click();
+}
+
+btnPng.addEventListener("click", () => {
+  if (!currentImage) return;
+  downloadFromCanvas(workCanvas, "output.png", "image/png");
+});
+
+btnWebp.addEventListener("click", () => {
+  if (!currentImage) return;
+  downloadFromCanvas(workCanvas, "output.webp", "image/webp");
+});
+
+btnJpeg.addEventListener("click", () => {
+  if (!currentImage) return;
+  const tmp = document.createElement("canvas");
+  tmp.width = imgWidth;
+  tmp.height = imgHeight;
+  const tctx = tmp.getContext("2d");
+  tctx.fillStyle = "#ffffff";
+  tctx.fillRect(0, 0, imgWidth, imgHeight);
+  tctx.drawImage(workCanvas, 0, 0);
+  downloadFromCanvas(tmp, "output.jpeg", "image/jpeg");
+});
+
+btnMask.addEventListener("click", () => {
+  if (!currentImage) return;
+
+  const tmp = document.createElement("canvas");
+  tmp.width = imgWidth;
+  tmp.height = imgHeight;
+  const tctx = tmp.getContext("2d");
+
+  const mask = new ImageData(imgWidth, imgHeight);
+  const d = currentImage.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3];
+    const v = a > 0 ? 255 : 0;
+    mask.data[i] = v;
+    mask.data[i + 1] = v;
+    mask.data[i + 2] = v;
+    mask.data[i + 3] = 255;
+  }
+
+  tctx.putImageData(mask, 0, 0);
+  downloadFromCanvas(tmp, "mask.png", "image/png");
+});
+
+// if ("serviceWorker" in navigator) {
+//   navigator.serviceWorker.register("sw.js").catch(console.error);
+// }
+
+renderMain(false);
+</script>
+
+
+</body>
+</html>
