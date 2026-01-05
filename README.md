@@ -101,4 +101,4 @@ If this tool saved you time:
 
 ## License
 
-Add a license file (MIT recommended) if you want people to freely reuse/modify it.
+Apache License 2.0 — see `LICENSE`.
